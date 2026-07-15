@@ -35,6 +35,8 @@ pub struct RequestLog {
     pub is_streaming: bool,
     /// 成本倍数
     pub cost_multiplier: String,
+    /// 请求来源；代理请求默认为 `proxy`，Claude-Mem 请求为 `MEM`。
+    pub data_source: String,
 }
 
 /// 使用量记录器
@@ -84,8 +86,8 @@ impl<'a> UsageLogger<'a> {
                 input_token_semantics,
                 input_cost_usd, output_cost_usd, cache_read_cost_usd, cache_creation_cost_usd, total_cost_usd,
                 latency_ms, first_token_ms, status_code, error_message, session_id,
-                provider_type, is_streaming, cost_multiplier, created_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+                provider_type, is_streaming, cost_multiplier, created_at, data_source
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
             rusqlite::params![
                 log.request_id,
                 log.provider_id,
@@ -112,6 +114,7 @@ impl<'a> UsageLogger<'a> {
                 log.is_streaming as i64,
                 log.cost_multiplier,
                 created_at,
+                log.data_source,
             ],
         )
         .map_err(|e| AppError::Database(format!("记录请求日志失败: {e}")))?;
@@ -155,6 +158,7 @@ impl<'a> UsageLogger<'a> {
             provider_type: None,
             is_streaming: false,
             cost_multiplier: "1.0".to_string(),
+            data_source: "proxy".to_string(),
         };
 
         self.log_request(&log)
@@ -176,6 +180,7 @@ impl<'a> UsageLogger<'a> {
         is_streaming: bool,
         session_id: Option<String>,
         provider_type: Option<String>,
+        data_source: String,
     ) -> Result<(), AppError> {
         let request_model = model.clone();
         let log = RequestLog {
@@ -196,6 +201,7 @@ impl<'a> UsageLogger<'a> {
             provider_type,
             is_streaming,
             cost_multiplier: "1.0".to_string(),
+            data_source,
         };
 
         self.log_request(&log)
@@ -328,6 +334,7 @@ impl<'a> UsageLogger<'a> {
         session_id: Option<String>,
         provider_type: Option<String>,
         is_streaming: bool,
+        data_source: String,
     ) -> Result<(), AppError> {
         let pricing = self.get_model_pricing(&pricing_model)?;
 
@@ -364,6 +371,7 @@ impl<'a> UsageLogger<'a> {
             provider_type,
             is_streaming,
             cost_multiplier: cost_multiplier.to_string(),
+            data_source,
         };
 
         self.log_request(&log)
@@ -415,19 +423,22 @@ mod tests {
             None,
             Some("claude".to_string()),
             false,
+            "MEM".to_string(),
         )?;
 
         // 验证记录已插入
         let conn = crate::database::lock_conn!(db.conn);
-        let (count, request_model): (i64, String) = conn
+        let (count, model, request_model, data_source): (i64, String, String, String) = conn
             .query_row(
-                "SELECT COUNT(*), request_model FROM proxy_request_logs WHERE request_id = 'req-123'",
+                "SELECT COUNT(*), model, request_model, data_source FROM proxy_request_logs WHERE request_id = 'req-123'",
                 [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .unwrap();
         assert_eq!(count, 1);
+        assert_eq!(model, "test-model");
         assert_eq!(request_model, "req-model");
+        assert_eq!(data_source, "MEM");
         Ok(())
     }
 
@@ -436,7 +447,7 @@ mod tests {
         let db = Database::memory()?;
         let logger = UsageLogger::new(&db);
 
-        logger.log_error(
+        logger.log_error_with_context(
             "req-error".to_string(),
             "provider-1".to_string(),
             "claude".to_string(),
@@ -444,19 +455,24 @@ mod tests {
             500,
             "Internal Server Error".to_string(),
             50,
+            false,
+            None,
+            None,
+            "MEM".to_string(),
         )?;
 
         // 验证错误记录已插入
         let conn = crate::database::lock_conn!(db.conn);
-        let (status, error): (i64, Option<String>) = conn
+        let (status, error, data_source): (i64, Option<String>, String) = conn
             .query_row(
-                "SELECT status_code, error_message FROM proxy_request_logs WHERE request_id = 'req-error'",
+                "SELECT status_code, error_message, data_source FROM proxy_request_logs WHERE request_id = 'req-error'",
                 [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .unwrap();
         assert_eq!(status, 500);
         assert_eq!(error, Some("Internal Server Error".to_string()));
+        assert_eq!(data_source, "MEM");
         Ok(())
     }
 }

@@ -489,6 +489,7 @@ fn create_usage_collector(
     let stream_parser = parser_config.stream_parser;
     let model_extractor = parser_config.model_extractor;
     let session_id = ctx.session_id.clone();
+    let data_source = ctx.data_source.to_string();
 
     Some(SseUsageCollector::new(
         start_time,
@@ -503,6 +504,7 @@ fn create_usage_collector(
                 let session_id = session_id.clone();
                 let request_model = request_model.clone();
                 let outbound_model = fallback_model.clone();
+                let data_source = data_source.clone();
 
                 tokio::spawn(async move {
                     log_usage_internal(
@@ -518,6 +520,7 @@ fn create_usage_collector(
                         true, // is_streaming
                         status_code,
                         Some(session_id),
+                        data_source,
                     )
                     .await;
                 });
@@ -529,6 +532,7 @@ fn create_usage_collector(
                 let session_id = session_id.clone();
                 let request_model = request_model.clone();
                 let outbound_model = fallback_model.clone();
+                let data_source = data_source.clone();
 
                 tokio::spawn(async move {
                     log_usage_internal(
@@ -544,6 +548,7 @@ fn create_usage_collector(
                         true, // is_streaming
                         status_code,
                         Some(session_id),
+                        data_source,
                     )
                     .await;
                 });
@@ -582,6 +587,7 @@ fn spawn_log_usage(
         .unwrap_or_else(|| ctx.request_model.clone());
     let latency_ms = ctx.latency_ms();
     let session_id = ctx.session_id.clone();
+    let data_source = ctx.data_source.to_string();
 
     tokio::spawn(async move {
         log_usage_internal(
@@ -597,6 +603,7 @@ fn spawn_log_usage(
             is_streaming,
             status_code,
             Some(session_id),
+            data_source,
         )
         .await;
     });
@@ -630,6 +637,7 @@ async fn log_usage_internal(
     is_streaming: bool,
     status_code: u16,
     session_id: Option<String>,
+    data_source: String,
 ) {
     use super::usage::logger::UsageLogger;
 
@@ -668,6 +676,7 @@ async fn log_usage_internal(
         session_id,
         None, // provider_type
         is_streaming,
+        data_source,
     ) {
         log::warn!("[USG-001] 记录使用量失败: {e}");
     }
@@ -1021,6 +1030,7 @@ mod tests {
             false,
             200,
             None,
+            "proxy".to_string(),
         )
         .await;
 
@@ -1091,6 +1101,7 @@ mod tests {
             false,
             200,
             None,
+            "proxy".to_string(),
         )
         .await;
 
@@ -1171,6 +1182,7 @@ mod tests {
             false,
             200,
             None,
+            "proxy".to_string(),
         )
         .await;
 

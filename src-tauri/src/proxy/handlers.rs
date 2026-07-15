@@ -164,7 +164,7 @@ async fn handle_messages_for_app(
     let (parts, body) = request.into_parts();
     let method = parts.method.clone();
     let uri = parts.uri;
-    let headers = parts.headers;
+    let mut headers = parts.headers;
     let extensions = parts.extensions;
     let body_bytes = body
         .collect()
@@ -174,8 +174,15 @@ async fn handle_messages_for_app(
     let body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
 
-    let mut ctx =
-        RequestContext::new(&state, &body, &headers, app_type.clone(), tag, app_type_str).await?;
+    let mut ctx = RequestContext::new(
+        &state,
+        &body,
+        &mut headers,
+        app_type.clone(),
+        tag,
+        app_type_str,
+    )
+    .await?;
 
     let raw_endpoint = uri
         .path_and_query()
@@ -290,6 +297,7 @@ struct ClaudeUsageLog {
     app_type: &'static str,
     provider_id: String,
     session_id: String,
+    data_source: String,
     usage: TokenUsage,
     latency_ms: u64,
     status_code: u16,
@@ -323,6 +331,7 @@ fn prepare_claude_usage_log(
         app_type: ctx.app_type_str,
         provider_id: ctx.provider.id.clone(),
         session_id: ctx.session_id.clone(),
+        data_source: ctx.data_source.to_string(),
         usage,
         latency_ms: ctx.latency_ms(),
         status_code,
@@ -344,6 +353,7 @@ async fn write_claude_usage_log(state: &ProxyState, log: ClaudeUsageLog) {
         log.is_streaming,
         log.status_code,
         Some(log.session_id),
+        log.data_source,
     )
     .await;
 }
@@ -436,6 +446,7 @@ async fn handle_claude_transform(
             let status_code = status.as_u16();
             let start_time = ctx.start_time;
             let session_id = ctx.session_id.clone();
+            let data_source = ctx.data_source.to_string();
             // 用 ctx 的 app_type：Claude Desktop 网关也走此转换路径，硬编码
             // "claude" 会把 claude-desktop 的行错记到 claude 名下
             let app_type_str = ctx.app_type_str;
@@ -456,6 +467,7 @@ async fn handle_claude_transform(
                         let session_id = session_id.clone();
                         let request_model = request_model.clone();
                         let outbound_model = fallback_model.clone();
+                        let data_source = data_source.clone();
 
                         tokio::spawn(async move {
                             log_usage(
@@ -471,6 +483,7 @@ async fn handle_claude_transform(
                                 true,
                                 status_code,
                                 Some(session_id),
+                                data_source,
                             )
                             .await;
                         });
@@ -707,8 +720,15 @@ pub async fn handle_chat_completions(
     let body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
 
-    let mut ctx =
-        RequestContext::new(&state, &body, &headers, AppType::Codex, "Codex", "codex").await?;
+    let mut ctx = RequestContext::new(
+        &state,
+        &body,
+        &mut headers,
+        AppType::Codex,
+        "Codex",
+        "codex",
+    )
+    .await?;
     let endpoint = endpoint_with_query(&uri, "/chat/completions");
 
     let is_stream = body
@@ -773,8 +793,15 @@ pub async fn handle_responses(
     let body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
 
-    let mut ctx =
-        RequestContext::new(&state, &body, &headers, AppType::Codex, "Codex", "codex").await?;
+    let mut ctx = RequestContext::new(
+        &state,
+        &body,
+        &mut headers,
+        AppType::Codex,
+        "Codex",
+        "codex",
+    )
+    .await?;
     let endpoint = endpoint_with_query(&uri, "/responses");
 
     let is_stream = body
@@ -864,8 +891,15 @@ pub async fn handle_responses_compact(
     let body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
 
-    let mut ctx =
-        RequestContext::new(&state, &body, &headers, AppType::Codex, "Codex", "codex").await?;
+    let mut ctx = RequestContext::new(
+        &state,
+        &body,
+        &mut headers,
+        AppType::Codex,
+        "Codex",
+        "codex",
+    )
+    .await?;
     let endpoint = endpoint_with_query(&uri, "/responses/compact");
 
     let is_stream = body
@@ -970,6 +1004,7 @@ async fn handle_codex_chat_to_responses_transform(
             let app_type_str = ctx.app_type_str;
             let start_time = ctx.start_time;
             let session_id = ctx.session_id.clone();
+            let data_source = ctx.data_source.to_string();
 
             Some(SseUsageCollector::new(
                 start_time,
@@ -998,6 +1033,7 @@ async fn handle_codex_chat_to_responses_transform(
                     let request_model = request_model.clone();
                     let outbound_model = fallback_model.clone();
                     let session_id = session_id.clone();
+                    let data_source = data_source.clone();
 
                     tokio::spawn(async move {
                         log_usage(
@@ -1013,6 +1049,7 @@ async fn handle_codex_chat_to_responses_transform(
                             true,
                             status.as_u16(),
                             Some(session_id),
+                            data_source,
                         )
                         .await;
                     });
@@ -1109,6 +1146,7 @@ async fn handle_codex_chat_to_responses_transform(
             .clone()
             .unwrap_or_else(|| ctx.request_model.clone());
         let app_type_str = ctx.app_type_str;
+        let data_source = ctx.data_source.to_string();
         tokio::spawn({
             let state = state.clone();
             let provider_id = ctx.provider.id.clone();
@@ -1128,6 +1166,7 @@ async fn handle_codex_chat_to_responses_transform(
                     false,
                     status.as_u16(),
                     Some(session_id),
+                    data_source,
                 )
                 .await;
             }
@@ -1273,6 +1312,7 @@ async fn handle_codex_anthropic_to_responses_transform(
             .clone()
             .unwrap_or_else(|| ctx.request_model.clone());
         let app_type_str = ctx.app_type_str;
+        let data_source = ctx.data_source.to_string();
         tokio::spawn({
             let state = state.clone();
             let provider_id = ctx.provider.id.clone();
@@ -1292,6 +1332,7 @@ async fn handle_codex_anthropic_to_responses_transform(
                     false,
                     status.as_u16(),
                     Some(session_id),
+                    data_source,
                 )
                 .await;
             }
@@ -1342,6 +1383,7 @@ fn build_codex_anthropic_sse_response(
         let app_type_str = ctx.app_type_str;
         let start_time = ctx.start_time;
         let session_id = ctx.session_id.clone();
+        let data_source = ctx.data_source.to_string();
 
         Some(SseUsageCollector::new(
             start_time,
@@ -1364,6 +1406,7 @@ fn build_codex_anthropic_sse_response(
                 let request_model = request_model.clone();
                 let outbound_model = fallback_model.clone();
                 let session_id = session_id.clone();
+                let data_source = data_source.clone();
 
                 tokio::spawn(async move {
                     log_usage(
@@ -1379,6 +1422,7 @@ fn build_codex_anthropic_sse_response(
                         true,
                         status.as_u16(),
                         Some(session_id),
+                        data_source,
                     )
                     .await;
                 });
@@ -1679,7 +1723,7 @@ pub async fn handle_gemini(
 ) -> Result<axum::response::Response, ProxyError> {
     let (parts, req_body) = request.into_parts();
     let method = parts.method.clone();
-    let headers = parts.headers;
+    let mut headers = parts.headers;
     let extensions = parts.extensions;
     let body_bytes = req_body
         .collect()
@@ -1696,9 +1740,16 @@ pub async fn handle_gemini(
     };
 
     // Gemini 的模型名称在 URI 中
-    let mut ctx = RequestContext::new(&state, &body, &headers, AppType::Gemini, "Gemini", "gemini")
-        .await?
-        .with_model_from_uri(&uri);
+    let mut ctx = RequestContext::new(
+        &state,
+        &body,
+        &mut headers,
+        AppType::Gemini,
+        "Gemini",
+        "gemini",
+    )
+    .await?
+    .with_model_from_uri(&uri);
 
     // 提取完整的路径和查询参数
     let endpoint = uri
@@ -2324,6 +2375,7 @@ fn log_forward_error(
         is_streaming,
         Some(ctx.session_id.clone()),
         None,
+        ctx.data_source.to_string(),
     ) {
         log::warn!("记录失败请求日志失败: {e}");
     }
@@ -2347,6 +2399,7 @@ async fn log_usage(
     is_streaming: bool,
     status_code: u16,
     session_id: Option<String>,
+    data_source: String,
 ) {
     use super::usage::logger::UsageLogger;
 
@@ -2381,6 +2434,7 @@ async fn log_usage(
         session_id,
         None, // provider_type
         is_streaming,
+        data_source,
     ) {
         log::warn!("[USG-001] 记录使用量失败: {e}");
     }

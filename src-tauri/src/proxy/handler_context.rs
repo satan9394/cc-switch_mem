@@ -14,6 +14,23 @@ use crate::proxy::{
 use axum::http::HeaderMap;
 use std::time::Instant;
 
+pub(crate) const USAGE_SOURCE_HEADER: &str = "x-cc-switch-usage-source";
+
+pub(crate) fn take_usage_source(headers: &mut HeaderMap) -> &'static str {
+    let is_claude_mem = {
+        let mut values = headers.get_all(USAGE_SOURCE_HEADER).iter();
+        let first_matches =
+            values.next().and_then(|value| value.to_str().ok()) == Some("claude-mem");
+        first_matches && values.next().is_none()
+    };
+    headers.remove(USAGE_SOURCE_HEADER);
+    if is_claude_mem {
+        "MEM"
+    } else {
+        "proxy"
+    }
+}
+
 /// 流式超时配置
 #[derive(Debug, Clone, Copy)]
 pub struct StreamingTimeoutConfig {
@@ -64,6 +81,8 @@ pub struct RequestContext {
     pub session_id: String,
     /// Session ID 是否由客户端提供。生成的 UUID 不能作为上游缓存 key，否则每个请求都会换 key。
     pub session_client_provided: bool,
+    /// 本地使用量来源标签；仅允许 `MEM` 或默认 `proxy`。
+    pub data_source: &'static str,
     /// 整流器配置
     pub rectifier_config: RectifierConfig,
     /// 优化器配置
@@ -88,7 +107,7 @@ impl RequestContext {
     pub async fn new(
         state: &ProxyState,
         body: &serde_json::Value,
-        headers: &HeaderMap,
+        headers: &mut HeaderMap,
         app_type: AppType,
         tag: &'static str,
         app_type_str: &'static str,
@@ -120,6 +139,7 @@ impl RequestContext {
         // 提取 Session ID
         let session_result = extract_session_id(headers, body, app_type_str);
         let session_id = session_result.session_id.clone();
+        let data_source = take_usage_source(headers);
 
         log::debug!(
             "[{}] Session ID: {} (from {:?}, client_provided: {})",
@@ -170,6 +190,7 @@ impl RequestContext {
             app_type,
             session_id,
             session_client_provided: session_result.client_provided,
+            data_source,
             rectifier_config,
             optimizer_config,
             copilot_optimizer_config,
@@ -300,7 +321,34 @@ pub(crate) fn extract_gemini_model_from_path(endpoint: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::extract_gemini_model_from_path;
+    use super::{extract_gemini_model_from_path, take_usage_source, USAGE_SOURCE_HEADER};
+    use axum::http::{HeaderMap, HeaderValue};
+
+    #[test]
+    fn claude_mem_source_is_consumed() {
+        let mut headers = HeaderMap::new();
+        headers.insert(USAGE_SOURCE_HEADER, HeaderValue::from_static("claude-mem"));
+
+        assert_eq!(take_usage_source(&mut headers), "MEM");
+        assert!(!headers.contains_key(USAGE_SOURCE_HEADER));
+    }
+
+    #[test]
+    fn missing_unknown_or_repeated_source_is_proxy_and_removed() {
+        let mut missing = HeaderMap::new();
+        assert_eq!(take_usage_source(&mut missing), "proxy");
+
+        let mut unknown = HeaderMap::new();
+        unknown.insert(USAGE_SOURCE_HEADER, HeaderValue::from_static("other"));
+        assert_eq!(take_usage_source(&mut unknown), "proxy");
+        assert!(!unknown.contains_key(USAGE_SOURCE_HEADER));
+
+        let mut repeated = HeaderMap::new();
+        repeated.append(USAGE_SOURCE_HEADER, HeaderValue::from_static("claude-mem"));
+        repeated.append(USAGE_SOURCE_HEADER, HeaderValue::from_static("claude-mem"));
+        assert_eq!(take_usage_source(&mut repeated), "proxy");
+        assert!(!repeated.contains_key(USAGE_SOURCE_HEADER));
+    }
 
     #[test]
     fn extract_model_with_action() {
