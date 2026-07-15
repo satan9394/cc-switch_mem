@@ -47,7 +47,11 @@ pub fn map_proxy_error_to_status(error: &ProxyError) -> u16 {
         ProxyError::ProviderUnhealthy(_) => 503,
 
         // 配置错误/无效请求：400 Bad Request
-        ProxyError::ConfigError(_) | ProxyError::InvalidRequest(_) => 400,
+        ProxyError::ConfigError(_)
+        | ProxyError::InvalidRequest(_)
+        | ProxyError::FollowSessionInvalid => 400,
+
+        ProxyError::SessionModelUnavailable => 409,
 
         // 认证错误：401 Unauthorized
         ProxyError::AuthError(_) => 401,
@@ -138,6 +142,14 @@ mod tests {
         assert_eq!(
             map_proxy_error_to_status(&ProxyError::StreamIdleTimeout(30)),
             504
+        );
+        assert_eq!(
+            map_proxy_error_to_status(&ProxyError::FollowSessionInvalid),
+            400
+        );
+        assert_eq!(
+            map_proxy_error_to_status(&ProxyError::SessionModelUnavailable),
+            409
         );
     }
 

@@ -59,6 +59,12 @@ pub enum ProxyError {
     #[error("无效的请求: {0}")]
     InvalidRequest(String),
 
+    #[error("CC Switch follow-session header is invalid")]
+    FollowSessionInvalid,
+
+    #[error("CC Switch has not observed a model for this session")]
+    SessionModelUnavailable,
+
     #[error("超时: {0}")]
     Timeout(String),
 
@@ -148,6 +154,24 @@ impl IntoResponse for ProxyError {
                         (StatusCode::UNPROCESSABLE_ENTITY, self.to_string())
                     }
                     ProxyError::InvalidRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+                    ProxyError::FollowSessionInvalid => {
+                        let body = json!({
+                            "error": {
+                                "message": self.to_string(),
+                                "type": "CC_SWITCH_FOLLOW_SESSION_INVALID",
+                            }
+                        });
+                        return (StatusCode::BAD_REQUEST, Json(body)).into_response();
+                    }
+                    ProxyError::SessionModelUnavailable => {
+                        let body = json!({
+                            "error": {
+                                "message": self.to_string(),
+                                "type": "CC_SWITCH_SESSION_MODEL_UNAVAILABLE",
+                            }
+                        });
+                        return (StatusCode::CONFLICT, Json(body)).into_response();
+                    }
                     ProxyError::Timeout(_) => (StatusCode::GATEWAY_TIMEOUT, self.to_string()),
                     ProxyError::StreamIdleTimeout(_) => {
                         (StatusCode::GATEWAY_TIMEOUT, self.to_string())

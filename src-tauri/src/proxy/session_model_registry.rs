@@ -1,8 +1,11 @@
 use std::{
     collections::HashMap,
-    sync::Mutex,
+    sync::{LazyLock, Mutex},
     time::{Duration, Instant},
 };
+
+pub static SESSION_MODEL_REGISTRY: LazyLock<SessionModelRegistry> =
+    LazyLock::new(|| SessionModelRegistry::new(1024, Duration::from_secs(2 * 60 * 60)));
 
 #[derive(Clone)]
 struct SessionModelEntry {

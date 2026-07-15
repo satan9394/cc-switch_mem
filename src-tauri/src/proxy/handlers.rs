@@ -171,12 +171,12 @@ async fn handle_messages_for_app(
         .await
         .map_err(|e| ProxyError::Internal(format!("Failed to read request body: {e}")))?
         .to_bytes();
-    let body: Value = serde_json::from_slice(&body_bytes)
+    let mut body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
 
     let mut ctx = RequestContext::new(
         &state,
-        &body,
+        &mut body,
         &mut headers,
         app_type.clone(),
         tag,
@@ -717,12 +717,12 @@ pub async fn handle_chat_completions(
         .map_err(|e| ProxyError::Internal(format!("Failed to read request body: {e}")))?
         .to_bytes();
     let body_bytes = decode_codex_request_body(&mut headers, body_bytes)?;
-    let body: Value = serde_json::from_slice(&body_bytes)
+    let mut body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
 
     let mut ctx = RequestContext::new(
         &state,
-        &body,
+        &mut body,
         &mut headers,
         AppType::Codex,
         "Codex",
@@ -790,12 +790,12 @@ pub async fn handle_responses(
         .map_err(|e| ProxyError::Internal(format!("Failed to read request body: {e}")))?
         .to_bytes();
     let body_bytes = decode_codex_request_body(&mut headers, body_bytes)?;
-    let body: Value = serde_json::from_slice(&body_bytes)
+    let mut body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
 
     let mut ctx = RequestContext::new(
         &state,
-        &body,
+        &mut body,
         &mut headers,
         AppType::Codex,
         "Codex",
@@ -888,12 +888,12 @@ pub async fn handle_responses_compact(
         .map_err(|e| ProxyError::Internal(format!("Failed to read request body: {e}")))?
         .to_bytes();
     let body_bytes = decode_codex_request_body(&mut headers, body_bytes)?;
-    let body: Value = serde_json::from_slice(&body_bytes)
+    let mut body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
 
     let mut ctx = RequestContext::new(
         &state,
-        &body,
+        &mut body,
         &mut headers,
         AppType::Codex,
         "Codex",
@@ -1684,6 +1684,8 @@ fn codex_proxy_error_code(error: &ProxyError) -> &'static str {
         ProxyError::ConfigError(_) => "cc_switch_config_error",
         ProxyError::TransformError(_) => "cc_switch_transform_error",
         ProxyError::InvalidRequest(_) => "cc_switch_invalid_request",
+        ProxyError::FollowSessionInvalid => "cc_switch_follow_session_invalid",
+        ProxyError::SessionModelUnavailable => "cc_switch_session_model_unavailable",
         ProxyError::AuthError(_) => "cc_switch_auth_error",
         ProxyError::UpstreamError { .. } => "cc_switch_upstream_error",
         ProxyError::DatabaseError(_) => "cc_switch_database_error",
@@ -1732,7 +1734,7 @@ pub async fn handle_gemini(
         .to_bytes();
     // GET 类只读端点（/v1beta/models、/v1beta/models/<model> 等）没有请求体，
     // 不能强制 parse 为 JSON —— 否则空 body 会被拒绝。
-    let body: Value = if body_bytes.is_empty() {
+    let mut body: Value = if body_bytes.is_empty() {
         Value::Null
     } else {
         serde_json::from_slice(&body_bytes)
@@ -1742,7 +1744,7 @@ pub async fn handle_gemini(
     // Gemini 的模型名称在 URI 中
     let mut ctx = RequestContext::new(
         &state,
-        &body,
+        &mut body,
         &mut headers,
         AppType::Gemini,
         "Gemini",

@@ -8,6 +8,8 @@ use crate::proxy::{
     extract_session_id,
     forwarder::RequestForwarder,
     server::ProxyState,
+    session::SessionIdResult,
+    session_model_registry::{SessionModelRegistry, SESSION_MODEL_REGISTRY},
     types::{AppProxyConfig, CopilotOptimizerConfig, OptimizerConfig, RectifierConfig},
     ProxyError,
 };
@@ -15,6 +17,7 @@ use axum::http::HeaderMap;
 use std::time::Instant;
 
 pub(crate) const USAGE_SOURCE_HEADER: &str = "x-cc-switch-usage-source";
+pub(crate) const FOLLOW_SESSION_HEADER: &str = "x-cc-switch-follow-session";
 
 pub(crate) fn take_usage_source(headers: &mut HeaderMap) -> &'static str {
     let is_claude_mem = {
@@ -29,6 +32,71 @@ pub(crate) fn take_usage_source(headers: &mut HeaderMap) -> &'static str {
     } else {
         "proxy"
     }
+}
+
+pub(crate) fn take_follow_session(headers: &mut HeaderMap) -> Result<Option<String>, ProxyError> {
+    let values = headers
+        .get_all(FOLLOW_SESSION_HEADER)
+        .iter()
+        .map(|value| value.to_str().ok().map(str::to_owned))
+        .collect::<Vec<_>>();
+    headers.remove(FOLLOW_SESSION_HEADER);
+
+    if values.is_empty() {
+        return Ok(None);
+    }
+    if values.len() != 1 {
+        return Err(ProxyError::FollowSessionInvalid);
+    }
+    let value = values
+        .into_iter()
+        .next()
+        .flatten()
+        .ok_or(ProxyError::FollowSessionInvalid)?;
+    if value.is_empty()
+        || value.len() > 128
+        || !value.bytes().all(|byte| matches!(byte, 0x21..=0x7e))
+    {
+        return Err(ProxyError::FollowSessionInvalid);
+    }
+    Ok(Some(value))
+}
+
+pub(crate) fn apply_session_model_follow(
+    body: &mut serde_json::Value,
+    headers: &mut HeaderMap,
+    app_type_str: &str,
+    session: &SessionIdResult,
+    registry: &SessionModelRegistry,
+) -> Result<&'static str, ProxyError> {
+    let data_source = take_usage_source(headers);
+    let follow_session = take_follow_session(headers)?;
+
+    if data_source == "MEM" {
+        if let Some(follow_session) = follow_session {
+            if app_type_str != "claude" {
+                return Err(ProxyError::FollowSessionInvalid);
+            }
+            let model = registry
+                .resolve(&follow_session)
+                .ok_or(ProxyError::SessionModelUnavailable)?;
+            body["model"] = serde_json::Value::String(model);
+        }
+        return Ok(data_source);
+    }
+
+    if follow_session.is_some() {
+        return Err(ProxyError::FollowSessionInvalid);
+    }
+
+    if app_type_str == "claude" && session.client_provided {
+        if let Some(model) = body.get("model").and_then(|value| value.as_str()) {
+            if !model.is_empty() && model != "unknown" {
+                registry.record(&session.session_id, model);
+            }
+        }
+    }
+    Ok(data_source)
 }
 
 /// 流式超时配置
@@ -106,7 +174,7 @@ impl RequestContext {
     /// 返回 `ProxyError` 如果 Provider 选择失败
     pub async fn new(
         state: &ProxyState,
-        body: &serde_json::Value,
+        body: &mut serde_json::Value,
         headers: &mut HeaderMap,
         app_type: AppType,
         tag: &'static str,
@@ -129,17 +197,23 @@ impl RequestContext {
         let current_provider_id =
             crate::settings::get_current_provider(&app_type).unwrap_or_default();
 
-        // 从请求体提取模型名称
+        // 提取 Session ID
+        let session_result = extract_session_id(headers, body, app_type_str);
+        let session_id = session_result.session_id.clone();
+        let data_source = apply_session_model_follow(
+            body,
+            headers,
+            app_type_str,
+            &session_result,
+            &SESSION_MODEL_REGISTRY,
+        )?;
+
+        // 跟随逻辑完成后再记录模型，保证 MEM 使用映射前的原始 Claude 模型档位。
         let request_model = body
             .get("model")
             .and_then(|m| m.as_str())
             .unwrap_or("unknown")
             .to_string();
-
-        // 提取 Session ID
-        let session_result = extract_session_id(headers, body, app_type_str);
-        let session_id = session_result.session_id.clone();
-        let data_source = take_usage_source(headers);
 
         log::debug!(
             "[{}] Session ID: {} (from {:?}, client_provided: {})",
@@ -321,8 +395,16 @@ pub(crate) fn extract_gemini_model_from_path(endpoint: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_gemini_model_from_path, take_usage_source, USAGE_SOURCE_HEADER};
+    use super::{
+        apply_session_model_follow, extract_gemini_model_from_path, take_follow_session,
+        take_usage_source, FOLLOW_SESSION_HEADER, USAGE_SOURCE_HEADER,
+    };
+    use crate::proxy::{
+        session_model_registry::SessionModelRegistry, ProxyError, SessionIdResult, SessionIdSource,
+    };
     use axum::http::{HeaderMap, HeaderValue};
+    use serde_json::json;
+    use std::time::Duration;
 
     #[test]
     fn claude_mem_source_is_consumed() {
@@ -348,6 +430,160 @@ mod tests {
         repeated.append(USAGE_SOURCE_HEADER, HeaderValue::from_static("claude-mem"));
         assert_eq!(take_usage_source(&mut repeated), "proxy");
         assert!(!repeated.contains_key(USAGE_SOURCE_HEADER));
+    }
+
+    #[test]
+    fn follow_session_header_is_consumed_and_validated() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            FOLLOW_SESSION_HEADER,
+            HeaderValue::from_static("session-123"),
+        );
+        assert_eq!(
+            take_follow_session(&mut headers).unwrap().as_deref(),
+            Some("session-123")
+        );
+        assert!(!headers.contains_key(FOLLOW_SESSION_HEADER));
+
+        let mut repeated = HeaderMap::new();
+        repeated.append(
+            FOLLOW_SESSION_HEADER,
+            HeaderValue::from_static("session-123"),
+        );
+        repeated.append(
+            FOLLOW_SESSION_HEADER,
+            HeaderValue::from_static("session-123"),
+        );
+        assert!(matches!(
+            take_follow_session(&mut repeated),
+            Err(ProxyError::FollowSessionInvalid)
+        ));
+        assert!(!repeated.contains_key(FOLLOW_SESSION_HEADER));
+    }
+
+    #[test]
+    fn normal_request_registers_and_mem_request_follows_without_changing_normal_body() {
+        let registry = SessionModelRegistry::new(1024, Duration::from_secs(7200));
+        let session = SessionIdResult {
+            session_id: "session-123".to_string(),
+            source: SessionIdSource::MetadataSessionId,
+            client_provided: true,
+        };
+        let mut normal_headers = HeaderMap::new();
+        let mut normal_body = json!({"model": "claude-haiku-4-5", "messages": []});
+
+        let source = apply_session_model_follow(
+            &mut normal_body,
+            &mut normal_headers,
+            "claude",
+            &session,
+            &registry,
+        )
+        .unwrap();
+        assert_eq!(source, "proxy");
+        assert_eq!(normal_body["model"], "claude-haiku-4-5");
+
+        let mut mem_headers = HeaderMap::new();
+        mem_headers.insert(USAGE_SOURCE_HEADER, HeaderValue::from_static("claude-mem"));
+        mem_headers.insert(
+            FOLLOW_SESSION_HEADER,
+            HeaderValue::from_static("session-123"),
+        );
+        let mut mem_body = json!({"model": "claude-haiku-4-5", "messages": []});
+        let source = apply_session_model_follow(
+            &mut mem_body,
+            &mut mem_headers,
+            "claude",
+            &session,
+            &registry,
+        )
+        .unwrap();
+
+        assert_eq!(source, "MEM");
+        assert_eq!(mem_body["model"], "claude-haiku-4-5");
+        assert!(!mem_headers.contains_key(USAGE_SOURCE_HEADER));
+        assert!(!mem_headers.contains_key(FOLLOW_SESSION_HEADER));
+    }
+
+    #[test]
+    fn model_switch_updates_next_mem_request_and_sessions_do_not_cross() {
+        let registry = SessionModelRegistry::new(1024, Duration::from_secs(7200));
+        for (session_id, model) in [
+            ("session-a", "claude-haiku-4-5"),
+            ("session-b", "claude-opus-4-8"),
+            ("session-a", "claude-sonnet-4-6"),
+        ] {
+            let session = SessionIdResult {
+                session_id: session_id.to_string(),
+                source: SessionIdSource::MetadataSessionId,
+                client_provided: true,
+            };
+            let mut body = json!({"model": model});
+            apply_session_model_follow(
+                &mut body,
+                &mut HeaderMap::new(),
+                "claude",
+                &session,
+                &registry,
+            )
+            .unwrap();
+        }
+
+        for (session_id, expected) in [
+            ("session-a", "claude-sonnet-4-6"),
+            ("session-b", "claude-opus-4-8"),
+        ] {
+            let session = SessionIdResult {
+                session_id: "generated-for-mem".to_string(),
+                source: SessionIdSource::Generated,
+                client_provided: false,
+            };
+            let mut headers = HeaderMap::new();
+            headers.insert(USAGE_SOURCE_HEADER, HeaderValue::from_static("claude-mem"));
+            headers.insert(
+                FOLLOW_SESSION_HEADER,
+                HeaderValue::from_str(session_id).unwrap(),
+            );
+            let mut body = json!({"model": "placeholder"});
+            apply_session_model_follow(&mut body, &mut headers, "claude", &session, &registry)
+                .unwrap();
+            assert_eq!(body["model"], expected);
+        }
+    }
+
+    #[test]
+    fn missing_follow_state_fails_closed_and_generated_sessions_are_not_registered() {
+        let registry = SessionModelRegistry::new(1024, Duration::from_secs(7200));
+        let generated = SessionIdResult {
+            session_id: "generated".to_string(),
+            source: SessionIdSource::Generated,
+            client_provided: false,
+        };
+        let mut normal_body = json!({"model": "claude-opus-4-8"});
+        apply_session_model_follow(
+            &mut normal_body,
+            &mut HeaderMap::new(),
+            "claude",
+            &generated,
+            &registry,
+        )
+        .unwrap();
+
+        let mut headers = HeaderMap::new();
+        headers.insert(USAGE_SOURCE_HEADER, HeaderValue::from_static("claude-mem"));
+        headers.insert(FOLLOW_SESSION_HEADER, HeaderValue::from_static("generated"));
+        let mut mem_body = json!({"model": "placeholder"});
+        assert!(matches!(
+            apply_session_model_follow(
+                &mut mem_body,
+                &mut headers,
+                "claude",
+                &generated,
+                &registry,
+            ),
+            Err(ProxyError::SessionModelUnavailable)
+        ));
+        assert_eq!(mem_body["model"], "placeholder");
     }
 
     #[test]
