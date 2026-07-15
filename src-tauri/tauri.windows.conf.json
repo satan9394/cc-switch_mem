@@ -11,5 +11,17 @@
         "minHeight": 600
       }
     ]
+  },
+  "bundle": {
+    "targets": ["nsis"],
+    "resources": {
+      "resources/suite/": "resources/suite/"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "./windows/suite-hooks.nsh"
+      }
+    }
   }
 }
