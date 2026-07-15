@@ -24,6 +24,7 @@ flatpak/cc-switch.deb
 flatpak-build/
 flatpak-repo/
 .worktrees/
+src-tauri/resources/suite/
 .spec-workflow/
 copilot-api
 .history
