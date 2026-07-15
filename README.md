@@ -18,6 +18,9 @@ English | [中文](README_ZH.md) | [日本語](README_JA.md) | [Deutsch](README_
 
 </div>
 
+> [!IMPORTANT]
+> **`cc-switch_mem` local fork — Claude-Mem real-time model following:** requests marked `MEM` can follow the model route of the same Claude Code session, including the first turn after `/model`. Ordinary Claude Code requests are not rewritten, and their model names remain unchanged. The registry is bounded and memory-only; missing session state returns `CC_SWITCH_SESSION_MODEL_UNAVAILABLE` without contacting an upstream or falling back to a more expensive model.
+
 ## ❤️Sponsor
 
 > [Want to appear here?](mailto:farion1231@gmail.com)
