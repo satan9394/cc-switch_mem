@@ -19,4 +19,34 @@ describe("MEM suite manifest", () => {
       "https://nodejs.org/dist/v24.18.0/node-v24.18.0-win-x64.zip",
     );
   });
+
+  test("keeps release versions, fork updater, workflow, and security notes aligned", () => {
+    const pkg = readJson("package.json");
+    const tauri = readJson("src-tauri/tauri.conf.json");
+    const cargo = readFileSync("src-tauri/Cargo.toml", "utf8");
+    const workflow = readFileSync(".github/workflows/release.yml", "utf8");
+    const notes = readFileSync(
+      "docs/release-notes/v3.17.0-mem.1-zh.md",
+      "utf8",
+    );
+
+    expect(pkg.version).toBe("3.17.0-mem.1");
+    expect(tauri.version).toBe(pkg.version);
+    expect(cargo).toContain('version = "3.17.0-mem.1"');
+    expect(tauri.plugins.updater.endpoints).toEqual([
+      "https://github.com/satan9394/cc-switch_mem/releases/latest/download/latest.json",
+    ]);
+    expect(workflow).toContain(
+      "CC-Switch-MEM-Suite-v3.17.0-mem.1-Windows-x64-Setup.exe",
+    );
+    expect(workflow).toContain("SHA256SUMS.txt");
+    for (const phrase of [
+      "Claude-Mem Local",
+      "本地",
+      "模型供应商",
+      "SmartScreen",
+    ]) {
+      expect(notes).toContain(phrase);
+    }
+  });
 });

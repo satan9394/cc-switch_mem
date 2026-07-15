@@ -1,18 +1,18 @@
 <div align="center">
 
-# CC Switch
+# CC Switch MEM Suite
 
 ### The All-in-One Manager for Claude Code, Claude Desktop, Codex, Gemini CLI, OpenCode, OpenClaw & Hermes Agent
 
-[![Version](https://img.shields.io/github/v/release/farion1231/cc-switch?color=blue&label=version)](https://github.com/farion1231/cc-switch/releases)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/farion1231/cc-switch/releases)
+[![Version](https://img.shields.io/github/v/release/satan9394/cc-switch_mem?color=blue&label=MEM%20version)](https://github.com/satan9394/cc-switch_mem/releases)
+[![Platform](https://img.shields.io/badge/suite-Windows%20x64-lightgrey.svg)](https://github.com/satan9394/cc-switch_mem/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
-[![Downloads](https://img.shields.io/github/downloads/farion1231/cc-switch/total)](https://github.com/farion1231/cc-switch/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/satan9394/cc-switch_mem/total)](https://github.com/satan9394/cc-switch_mem/releases/latest)
 
 <a href="https://trendshift.io/repositories/15372" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15372" alt="farion1231%2Fcc-switch | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 <a href="https://www.star-history.com/#farion1231/cc-switch&Date"><picture><source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=farion1231/cc-switch&theme=dark" /><img alt="Star History Rank" src="https://api.star-history.com/badge?repo=farion1231/cc-switch" width="196" height="55" /></picture></a>
 
-### 🌐 The Only Official Website: **[ccswitch.io](https://ccswitch.io)**
+### Independent MEM fork · Upstream project: **[CC Switch](https://github.com/farion1231/cc-switch)**
 
 English | [中文](README_ZH.md) | [日本語](README_JA.md) | [Deutsch](README_DE.md) | [Changelog](CHANGELOG.md)
 
@@ -20,6 +20,9 @@ English | [中文](README_ZH.md) | [日本語](README_JA.md) | [Deutsch](README_
 
 > [!IMPORTANT]
 > **`cc-switch_mem` local fork — Claude-Mem real-time model following:** requests marked `MEM` can follow the model route of the same Claude Code session, including the first turn after `/model`. Ordinary Claude Code requests are not rewritten, and their model names remain unchanged. The registry is bounded and memory-only; missing session state returns `CC_SWITCH_SESSION_MODEL_UNAVAILABLE` without contacting an upstream or falling back to a more expensive model.
+
+> [!TIP]
+> **Windows 一键安装：** 在本 fork 的 Releases 页面下载 `CC-Switch-MEM-Suite-*-Windows-x64-Setup.exe`。它内置固定版本的 Node 和 Claude-Mem Local，自动配置本机回环代理与实时模型跟随。记忆数据保留在本机；经过脱敏的 MEM 请求会发送到你当时在 CC Switch 中明确选择的模型供应商。当前安装器未使用商业 Authenticode 证书，Windows 可能显示 SmartScreen“未知发布者”。
 
 ## ❤️Sponsor
 

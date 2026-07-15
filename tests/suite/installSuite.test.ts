@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 // @ts-expect-error The shipped installer helper is intentionally plain Node ESM.
-import { buildInstallArgs, sanitizeLog } from "../../scripts/suite/install-suite.mjs";
+import {
+  buildInstallArgs,
+  sanitizeLog,
+} from "../../scripts/suite/install-suite.mjs";
 
 describe("suite installer orchestration", () => {
   test("builds a secret-free child invocation", () => {
@@ -13,6 +16,7 @@ describe("suite installer orchestration", () => {
       "cc-switch",
       "--runtime",
       "worker",
+      "--auto-start",
     ]);
   });
 

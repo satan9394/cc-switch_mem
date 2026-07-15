@@ -584,10 +584,74 @@ jobs:
             security delete-keychain "$RUNNER_TEMP/build.keychain-db" || true
           fi
 
+  suite-windows:
+    name: Build Windows x64 MEM Suite
+    runs-on: windows-2022
+    steps:
+      - name: Checkout CC Switch MEM
+        uses: actions/checkout@v6
+
+      - name: Checkout pinned Claude-Mem Local
+        uses: actions/checkout@v6
+        with:
+          repository: satan9394/claude-mem_local
+          ref: v13.11.0-local.4
+          path: claude-mem-local
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.18.0'
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.12.3
+          run_install: false
+
+      - name: Install CC Switch dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Claude-Mem build dependencies
+        working-directory: claude-mem-local
+        run: npm install --no-audit --no-fund
+
+      - name: Prepare pinned suite resources
+        shell: pwsh
+        run: ./scripts/suite/prepare-assets.ps1 -ClaudeMemSource ./claude-mem-local
+
+      - name: Build NSIS suite installer
+        run: pnpm tauri build --bundles nsis --config src-tauri/tauri.suite.conf.json
+
+      - name: Name and hash suite installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-assets | Out-Null
+          $Setup = Get-ChildItem src-tauri/target/release/bundle/nsis -Filter '*-setup.exe' | Select-Object -First 1
+          if (-not $Setup) { throw 'NSIS setup executable was not produced.' }
+          $Name = 'CC-Switch-MEM-Suite-v3.17.0-mem.1-Windows-x64-Setup.exe'
+          Copy-Item -LiteralPath $Setup.FullName -Destination (Join-Path release-assets $Name)
+          $Hash = (Get-FileHash (Join-Path release-assets $Name) -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path (Resolve-Path release-assets) 'SHA256SUMS.txt'),
+            "$Hash  $Name`n",
+            [System.Text.UTF8Encoding]::new($false)
+          )
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-assets-Windows-MEM-Suite
+          path: release-assets/*
+          if-no-files-found: error
+
   publish-release:
     name: Publish GitHub Release
     runs-on: ubuntu-22.04
-    needs: release
+    needs: [release, suite-windows]
     permissions:
       contents: write
     steps:
@@ -609,11 +673,19 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: CC Switch ${{ github.ref_name }}
-          prerelease: true
+          prerelease: false
           body: |
-            ## CC Switch ${{ github.ref_name }}
+            ## CC Switch MEM Suite ${{ github.ref_name }}
 
-            🌐 **Only Official Website / 唯一官方网站 / 唯一の公式サイト**: [ccswitch.io](https://ccswitch.io)
+            ### 推荐下载 / Recommended
+
+            **Windows x64:** `CC-Switch-MEM-Suite-v3.17.0-mem.1-Windows-x64-Setup.exe`
+
+            一个安装包同时安装 CC Switch MEM 与 Claude-Mem Local。记忆数据保留在本地；脱敏后的 MEM 请求仅流向用户在 CC Switch 中明确选择的模型供应商。普通 Claude Code 模型名称不会改变。
+
+            > 当前安装器没有商业 Authenticode 证书，SmartScreen 可能显示“未知发布者”。请从本 Release 下载并核对 `SHA256SUMS.txt`。
+
+            上游 CC Switch 项目网站 / Upstream project website: [ccswitch.io](https://ccswitch.io)
 
             Claude Code 供应商切换工具
 

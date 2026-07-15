@@ -21,20 +21,26 @@ export function buildInstallArgs(packageRoot) {
     "cc-switch",
     "--runtime",
     "worker",
+    "--auto-start",
   ];
 }
 
 export function sanitizeLog(value) {
   return String(value)
-    .replace(/((?:api[_-]?key|token|secret|password)\s*[:=]\s*)[^\s]+/gi, "$1[REDACTED]")
+    .replace(
+      /((?:api[_-]?key|token|secret|password)\s*[:=]\s*)[^\s]+/gi,
+      "$1[REDACTED]",
+    )
     .replace(/(authorization\s*:\s*(?:bearer\s+)?)[^\s]+/gi, "$1[REDACTED]")
     .replace(/(sk-[A-Za-z0-9_-]{8})[A-Za-z0-9_-]+/g, "$1[REDACTED]");
 }
 
-export function backupConfiguration(files = [
-  join(homedir(), ".claude-mem", "settings.json"),
-  join(homedir(), ".claude", "settings.json"),
-]) {
+export function backupConfiguration(
+  files = [
+    join(homedir(), ".claude-mem", "settings.json"),
+    join(homedir(), ".claude", "settings.json"),
+  ],
+) {
   const directory = mkdtempSync(join(tmpdir(), "cc-switch-mem-backup-"));
   const entries = [];
   for (const [index, source] of files.entries()) {
@@ -65,27 +71,40 @@ function run(nodeExe, args) {
 export function runSuiteInstall(root) {
   const nodeExe = join(root, "node", "node.exe");
   const packageRoot = join(root, "claude-mem");
-  const logPath = join(process.env.LOCALAPPDATA ?? homedir(), "claude-mem-local", "logs", "suite-install.log");
+  const logPath = join(
+    process.env.LOCALAPPDATA ?? homedir(),
+    "claude-mem-local",
+    "logs",
+    "suite-install.log",
+  );
   const backup = backupConfiguration();
   const messages = [`suite install started`, `suite root: ${root}`];
   let exitCode = 1;
 
   try {
-    if (!existsSync(nodeExe)) throw new Error("Embedded Node runtime is missing");
+    if (!existsSync(nodeExe))
+      throw new Error("Embedded Node runtime is missing");
     const install = run(nodeExe, buildInstallArgs(packageRoot));
     messages.push(install.stdout ?? "", install.stderr ?? "");
     if (install.error) throw install.error;
-    if (install.status !== 0) throw new Error(`Claude-Mem install exited with ${install.status}`);
+    if (install.status !== 0)
+      throw new Error(`Claude-Mem install exited with ${install.status}`);
 
-    const doctor = run(nodeExe, [join(packageRoot, "dist", "npx-cli", "index.js"), "doctor"]);
+    const doctor = run(nodeExe, [
+      join(packageRoot, "dist", "npx-cli", "index.js"),
+      "doctor",
+    ]);
     messages.push(doctor.stdout ?? "", doctor.stderr ?? "");
     if (doctor.error) throw doctor.error;
-    if (doctor.status !== 0) throw new Error(`Claude-Mem doctor exited with ${doctor.status}`);
+    if (doctor.status !== 0)
+      throw new Error(`Claude-Mem doctor exited with ${doctor.status}`);
     exitCode = 0;
     messages.push("suite install completed");
   } catch (error) {
     restoreConfiguration(backup);
-    messages.push(`suite install failed: ${error instanceof Error ? error.message : String(error)}`);
+    messages.push(
+      `suite install failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
   } finally {
     rmSync(backup.directory, { recursive: true, force: true });
     mkdirSync(dirname(logPath), { recursive: true });

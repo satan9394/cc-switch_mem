@@ -25,6 +25,8 @@ flatpak-build/
 flatpak-repo/
 .worktrees/
 src-tauri/resources/suite/
+.release-secrets/
+.scratch/
 .spec-workflow/
 copilot-api
 .history
