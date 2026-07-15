@@ -129,6 +129,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - working-directory: claude-mem-local
         run: npm install --no-audit --no-fund
+      - name: Generate ephemeral updater key for clean-room build
+        shell: pwsh
+        run: |
+          $Key = Join-Path $env:RUNNER_TEMP 'suite-test.key'
+          npx tauri signer generate --ci --write-keys $Key
+          "TAURI_SIGNING_PRIVATE_KEY=$Key" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - shell: pwsh
         run: ./scripts/suite/prepare-assets.ps1 -ClaudeMemSource ./claude-mem-local
       - run: pnpm tauri build --bundles nsis --config src-tauri/tauri.suite.conf.json

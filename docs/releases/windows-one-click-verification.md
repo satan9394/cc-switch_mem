@@ -16,6 +16,7 @@ The verifier checks:
 - the installer persists `cc-switch-auto`, `follow-session`, and an empty fixed model;
 - the worker is started and answers its loopback health endpoint;
 - the isolated worker is stopped and the temporary user directory is removed.
+- the release build emits a Tauri updater signature beside the Setup EXE.
 
 The normal Claude Code model name is never modified. Runtime integration tests separately assert that only MEM traffic gets MEM attribution, a session model is followed in real time, and a missing session fails locally without upstream contact.
 

@@ -14,6 +14,8 @@ concurrency:
 
 jobs:
   release:
+    # ponytail: this fork publishes the Windows MEM suite below; upstream multi-platform signing is intentionally skipped.
+    if: ${{ false }}
     runs-on: ${{ matrix.os }}
     environment: release
     strategy:
@@ -625,7 +627,15 @@ jobs:
         run: ./scripts/suite/prepare-assets.ps1 -ClaudeMemSource ./claude-mem-local
 
       - name: Build NSIS suite installer
-        run: pnpm tauri build --bundles nsis --config src-tauri/tauri.suite.conf.json
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
+            throw 'TAURI_SIGNING_PRIVATE_KEY GitHub Secret is required.'
+          }
+          pnpm tauri build --bundles nsis --config src-tauri/tauri.suite.conf.json
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Name and hash suite installer
         shell: pwsh
@@ -633,12 +643,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path release-assets | Out-Null
           $Setup = Get-ChildItem src-tauri/target/release/bundle/nsis -Filter '*-setup.exe' | Select-Object -First 1
           if (-not $Setup) { throw 'NSIS setup executable was not produced.' }
+          $SetupSignature = "$($Setup.FullName).sig"
+          if (-not (Test-Path -LiteralPath $SetupSignature)) { throw 'NSIS updater signature was not produced.' }
           $Name = 'CC-Switch-MEM-Suite-v3.17.0-mem.1-Windows-x64-Setup.exe'
           Copy-Item -LiteralPath $Setup.FullName -Destination (Join-Path release-assets $Name)
-          $Hash = (Get-FileHash (Join-Path release-assets $Name) -Algorithm SHA256).Hash.ToLowerInvariant()
+          Copy-Item -LiteralPath $SetupSignature -Destination (Join-Path release-assets "$Name.sig")
+          $SetupHash = (Get-FileHash (Join-Path release-assets $Name) -Algorithm SHA256).Hash.ToLowerInvariant()
           [System.IO.File]::WriteAllText(
             (Join-Path (Resolve-Path release-assets) 'SHA256SUMS.txt'),
-            "$Hash  $Name`n",
+            "$SetupHash  $Name`n",
             [System.Text.UTF8Encoding]::new($false)
           )
 
@@ -651,7 +664,7 @@ jobs:
   publish-release:
     name: Publish GitHub Release
     runs-on: ubuntu-22.04
-    needs: [release, suite-windows]
+    needs: suite-windows
     permissions:
       contents: write
     steps:
@@ -685,22 +698,13 @@ jobs:
 
             > 当前安装器没有商业 Authenticode 证书，SmartScreen 可能显示“未知发布者”。请从本 Release 下载并核对 `SHA256SUMS.txt`。
 
+            应用内更新使用独立的 Tauri 签名更新包和 `latest.json`；这与 Windows Authenticode 发布者证书是两个不同的机制。
+
             上游 CC Switch 项目网站 / Upstream project website: [ccswitch.io](https://ccswitch.io)
 
             Claude Code 供应商切换工具
 
-            ### 下载
-
-            - **macOS**: `CC-Switch-${{ github.ref_name }}-macOS.dmg`（推荐）或 `CC-Switch-${{ github.ref_name }}-macOS.zip`（解压即用）
-            - **Windows (x86_64)**: `CC-Switch-${{ github.ref_name }}-Windows.msi`（安装版）或 `CC-Switch-${{ github.ref_name }}-Windows-Portable.zip`（绿色版）
-            - **Windows (ARM64)**: `CC-Switch-${{ github.ref_name }}-Windows-arm64.msi`（安装版）或 `CC-Switch-${{ github.ref_name }}-Windows-arm64-Portable.zip`（绿色版）
-            - **Linux (x86_64)**: `CC-Switch-${{ github.ref_name }}-Linux-x86_64.AppImage` / `.deb` / `.rpm`
-            - **Linux (ARM64)**: `CC-Switch-${{ github.ref_name }}-Linux-arm64.AppImage` / `.deb` / `.rpm`
-
-            > `.tar.gz` 为 Tauri updater 自动更新专用，无需手动下载。
-
-            ---
-            macOS 版本已通过 Apple 代码签名和公证，可直接安装使用。
+            > `*.exe.sig` 为应用内自动更新签名，普通用户只需下载 Setup EXE。
           files: release-assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -748,6 +752,8 @@ jobs:
             url="$base_url/$fname"
             sig_content=$(cat "$sig")
             case "$fname" in
+              *-Windows-x64-Setup.exe)
+                win_x64_url="$url"; win_x64_sig="$sig_content";;
               *.tar.gz)
                 # 视为 macOS updater artifact
                 mac_url="$url"; mac_sig="$sig_content";;

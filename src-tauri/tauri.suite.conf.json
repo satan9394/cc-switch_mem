@@ -3,7 +3,7 @@
   "productName": "CC Switch MEM Suite",
   "bundle": {
     "targets": ["nsis"],
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "resources": {
       "resources/suite/": "resources/suite/"
     },

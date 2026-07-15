@@ -40,6 +40,7 @@ describe("MEM suite manifest", () => {
       "CC-Switch-MEM-Suite-v3.17.0-mem.1-Windows-x64-Setup.exe",
     );
     expect(workflow).toContain("SHA256SUMS.txt");
+    expect(workflow).toContain("$Name.sig");
     for (const phrase of [
       "Claude-Mem Local",
       "本地",
