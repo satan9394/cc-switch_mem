@@ -1,5 +1,4 @@
 import { describe, expect, test } from "vitest";
-// @ts-expect-error The shipped installer helper is intentionally plain Node ESM.
 import {
   buildInstallArgs,
   sanitizeLog,
